@@ -110,9 +110,22 @@ class MasechetDownloader:
 
     @staticmethod
     def daf_amud_calculator(page_number):
-        """Calculates daf and amud from a page number."""
-        daf = 2 + (page_number - 2) // 2
-        amud = "b" if page_number % 2 != 0 else "a"
+        """
+        Calculates the daf and amud from a given page number.
+        - Page 1 corresponds to Daf 2a.
+        - Page 2 corresponds to Daf 2b.
+        - Page 3 corresponds to Daf 3a, and so on.
+        """
+        if page_number < 1:
+            return None, None
+
+        # Calculate the daf number. Since page 1 is daf 2, we add 1 to the page number
+        # before the calculation, effectively shifting the start.
+        daf = 2 + (page_number - 1) // 2
+
+        # Determine Amud. Odd pages are 'a', even pages are 'b'.
+        amud = "a" if page_number % 2 != 0 else "b"
+
         return daf, amud
 
     def __init__(self):
@@ -262,133 +275,146 @@ class MasechetDownloader:
             if not self.merge_amudim_into_dapim:
                 self.keep_individual_amudim = input("Keep individual amud PDFs? (y/n): ").lower() == 'y'
 
-    def start_download(self):
-        """Main logic to determine which files to get and then download them."""
-        # Check if the user has set the folder ID.
-        if not DRIVE_FOLDER_ID or DRIVE_FOLDER_ID == 'PASTE_YOUR_FOLDER_ID_HERE':
-            print("\n[FATAL ERROR] Please set the 'DRIVE_FOLDER_ID' variable at the top of the script.")
-            print("Follow Step 5 in the setup instructions to get your folder ID.")
-            sys.exit(1)
+    def _calculate_pages_to_download(self):
+        """
+        Determines the set of page numbers to download based on user selection.
+        This method centralizes the logic for page calculation.
+        """
+        pages = set()
+        masechta_info = self.masechtos_info_static.get(self.masechta_name)
+        if not masechta_info:
+            return set()
 
-        masechta_name = self.masechta_name
-        selection_mode = self.selection_mode
-        select_type = self.select_type
+        _, total_pages = masechta_info
 
-        pages_to_download = set()
-        _, total_pages = self.masechtos_info_static[masechta_name]
-        max_daf = total_pages // 2
-        extra_page = ".5" in str(total_pages / 2)
+        if self.selection_mode == "All":
+            pages.update(range(1, total_pages + 1))
 
-        download_dir = os.path.join(DOWNLOADS_DIR, masechta_name)
-        os.makedirs(download_dir, exist_ok=True)
-
-        print(f"\n--- Starting Download for {masechta_name} ---")
-        print(f"Selection Mode: {selection_mode}, Select By: {select_type}")
-
-        # --- Calculate which pages are needed based on user input ---
-        if selection_mode == "All":
-            pages_to_download.update(range(1, total_pages + 1))
-        elif selection_mode == "Range":
-            if select_type == "Dapim":
+        elif self.selection_mode == "Range":
+            if self.select_type == "Dapim":
                 start_daf, end_daf = self.range_start, self.range_end
                 for daf in range(start_daf, end_daf + 1):
-                    pages_to_download.add(2 * (daf - 2) + 1)
-                    pages_to_download.add(2 * (daf - 2) + 2)
-            else: # Amudim
+                    # Page 'a' is always at an odd offset, 'b' is even.
+                    pages.add(2 * (daf - 2) + 1)
+                    pages.add(2 * (daf - 2) + 2)
+            else:  # Amudim
                 start_daf, start_amud = int(self.range_start[:-1]), self.range_start[-1]
                 end_daf, end_amud = int(self.range_end[:-1]), self.range_end[-1]
                 for daf in range(start_daf, end_daf + 1):
-                    if daf == start_daf and start_amud == 'b':
-                        pages_to_download.add(2 * (daf - 2) + 2)
-                    elif daf == end_daf and end_amud == 'a':
-                        pages_to_download.add(2 * (daf - 2) + 1)
-                    else:
-                        pages_to_download.add(2 * (daf - 2) + 1)
-                        pages_to_download.add(2 * (daf - 2) + 2)
-        elif selection_mode == "Individual":
-            if select_type == "Dapim":
+                    is_first_daf = (daf == start_daf)
+                    is_last_daf = (daf == end_daf)
+
+                    # Add amud 'a' unless it's the first daf and we start at 'b'
+                    if not (is_first_daf and start_amud == 'b'):
+                        pages.add(2 * (daf - 2) + 1)
+                    # Add amud 'b' unless it's the last daf and we end at 'a'
+                    if not (is_last_daf and end_amud == 'a'):
+                        pages.add(2 * (daf - 2) + 2)
+
+        elif self.selection_mode == "Individual":
+            if self.select_type == "Dapim":
                 for daf in self.individual_selections:
-                    pages_to_download.add(2 * (int(daf) - 2) + 1)
-                    pages_to_download.add(2 * (int(daf) - 2) + 2)
-            else: # Amudim
+                    pages.add(2 * (int(daf) - 2) + 1)
+                    pages.add(2 * (int(daf) - 2) + 2)
+            else:  # Amudim
                 for item_str in self.individual_selections:
                     daf, amud_char = int(item_str[:-1]), item_str[-1]
                     page = 2 * (daf - 2) + (1 if amud_char == 'a' else 2)
-                    pages_to_download.add(page)
+                    pages.add(page)
 
-        valid_pages = {p for p in pages_to_download if 1 <= p <= total_pages}
+        # Final validation to ensure no pages are out of bounds
+        return {p for p in pages if 1 <= p <= total_pages}
+
+    def start_download(self):
+        """Main logic to orchestrate the download and merge process."""
+        if not DRIVE_FOLDER_ID or DRIVE_FOLDER_ID == 'PASTE_YOUR_FOLDER_ID_HERE':
+            print("\n[FATAL ERROR] Please set the 'DRIVE_FOLDER_ID' variable in the script.")
+            sys.exit(1)
+
+        download_dir = os.path.join(DOWNLOADS_DIR, self.masechta_name)
+        os.makedirs(download_dir, exist_ok=True)
+
+        print(f"\n--- Starting Download for {self.masechta_name} ---")
+        print(f"Selection: {self.selection_mode} by {self.select_type}")
+
+        valid_pages = self._calculate_pages_to_download()
+
         if not valid_pages:
             print("No valid pages selected or found for this Masechet.")
             return
 
-        print(f"Will attempt to find and download {len(valid_pages)} files from Google Drive.")
+        print(f"Found {len(valid_pages)} pages to download from Google Drive.")
 
-        downloaded_amud_files = {}
+        downloaded_files_map = {}
         files_to_delete_later = set()
 
         # --- Main Download Loop ---
         for i, page_num in enumerate(sorted(list(valid_pages))):
             daf, amud = self.daf_amud_calculator(page_num)
-            filename_to_search = f"{masechta_name}_Daf{daf}_Amud{amud}.pdf"
-            local_filepath = os.path.join(download_dir, filename_to_search)
-            downloaded_amud_files[page_num] = local_filepath
+            if daf is None: continue
 
-            if not os.path.exists(local_filepath):
-                print(f"\n[INFO] Searching for '{filename_to_search}' in folder...")
-                if not self.download_from_drive(filename_to_search, local_filepath):
-                    print(f"[WARN] Could not find or download '{filename_to_search}'. Skipping.")
-                    # Remove from list if download fails
-                    downloaded_amud_files.pop(page_num, None)
-                time.sleep(0.2) # Be nice to the API
+            filename = f"{self.masechta_name}_Daf{daf}_Amud{amud}.pdf"
+            local_path = os.path.join(download_dir, filename)
+
+            if not os.path.exists(local_path):
+                print(f"\n[INFO] Searching for '{filename}'...")
+                success = self.download_from_drive(filename, local_path)
+                if success:
+                    downloaded_files_map[page_num] = local_path
+                else:
+                    print(f"[WARN] Could not download '{filename}'. Skipping.")
+                time.sleep(0.1) # API kindness
             else:
-                print(f"\n[INFO] File already exists locally: {os.path.basename(local_filepath)}")
+                downloaded_files_map[page_num] = local_path
+                print(f"\n[INFO] File already exists: {filename}")
 
             # Progress bar
             progress = (i + 1) / len(valid_pages)
-            bar_length = 40
-            block = int(round(bar_length * progress))
-            text = f"\rOverall Progress: [{'#' * block + '-' * (bar_length - block)}] {int(progress * 100)}%"
-            sys.stdout.write(text)
+            bar = '#' * int(progress * 40)
+            sys.stdout.write(f"\rOverall Progress: [{bar:<40}] {int(progress*100)}%")
             sys.stdout.flush()
 
         # --- Merging Logic ---
+        self._perform_merging(download_dir, downloaded_files_map, files_to_delete_later)
+
+        # --- Cleanup ---
+        if not self.keep_individual_amudim:
+            self.clean_up(list(files_to_delete_later))
+
+        print(f"\n--- Download Finished for {self.masechta_name} ---")
+        print(f"Files are in: {download_dir}")
+
+    def _perform_merging(self, download_dir, downloaded_files_map, files_to_delete_later):
+        """Handles all PDF merging operations based on user preferences."""
         files_for_final_merge = []
+
         if self.merge_amudim_into_dapim:
             print("\n[INFO] Merging Amudim into Dapim...")
-            daf_files = {}
-            for page_num, filepath in downloaded_amud_files.items():
-                if not os.path.exists(filepath): continue
+            daf_to_files = {}
+            for page_num, filepath in downloaded_files_map.items():
                 daf, _ = self.daf_amud_calculator(page_num)
-                if daf not in daf_files: daf_files[daf] = []
-                daf_files[daf].append(filepath)
+                if daf not in daf_to_files: daf_to_files[daf] = []
+                daf_to_files[daf].append(filepath)
 
-            for daf, amud_filepaths in daf_files.items():
-                if len(amud_filepaths) > 0:
-                    daf_filename = os.path.join(download_dir, f"{masechta_name}_Daf{daf}.pdf")
-                    self.merge_pdfs(sorted(amud_filepaths), daf_filename)
-                    files_for_final_merge.append(daf_filename)
-                    if not self.keep_individual_amudim:
-                        files_to_delete_later.update(amud_filepaths)
+            for daf, paths in sorted(daf_to_files.items()):
+                daf_filename = os.path.join(download_dir, f"{self.masechta_name}_Daf{daf}.pdf")
+                self.merge_pdfs(sorted(paths), daf_filename)
+                files_for_final_merge.append(daf_filename)
+                if not self.keep_individual_amudim:
+                    files_to_delete_later.update(paths)
         else:
-            files_for_final_merge.extend(downloaded_amud_files.values())
+            # If not merging into dapim, the final merge will use the individual amudim
+            files_for_final_merge.extend(downloaded_files_map.values())
 
         if self.merge_all_selection:
-             print("\n[INFO] Merging selection into single PDF...")
-             valid_files_for_merge = [f for f in files_for_final_merge if os.path.exists(f)]
-             if valid_files_for_merge:
-                 if selection_mode == "All": name_suffix = "All"
-                 elif selection_mode == "Range": name_suffix = f"Range_{self.range_start}-{self.range_end}"
-                 else: name_suffix = "Individual_Selection"
-                 merged_filename = os.path.join(DOWNLOADS_DIR, f"{masechta_name}_{name_suffix}_Full.pdf")
-                 self.merge_pdfs(sorted(valid_files_for_merge), merged_filename)
+            print("\n[INFO] Merging selection into a single PDF...")
+            if self.selection_mode == "All": suffix = "All"
+            elif self.selection_mode == "Range": suffix = f"Range_{self.range_start}-{self.range_end}"
+            else: suffix = "Individual_Selection"
 
-        if not self.keep_individual_amudim:
-             self.clean_up(list(files_to_delete_later))
-        else:
-             print("[INFO] Keeping individual Amud PDFs as requested.")
-
-        print(f"\n--- Download Finished for {masechta_name} ---")
-        print(f"Files are located in: {download_dir}")
+            merged_filename = os.path.join(DOWNLOADS_DIR, f"{self.masechta_name}_{suffix}_Full.pdf")
+            # Ensure files are sorted correctly for the final merge
+            self.merge_pdfs(sorted(files_for_final_merge), merged_filename)
 
 
     def download_from_drive(self, filename, save_path):
@@ -396,7 +422,7 @@ class MasechetDownloader:
         try:
             # This query is much faster as it only searches within the specified folder.
             query = f"name = '{filename}' and '{DRIVE_FOLDER_ID}' in parents and trashed = false"
-            
+
             results = self.drive_service.files().list(
                 q=query,
                 # Use 'allDrives' to support both "My Drive" folders and "Shared drives"
@@ -413,7 +439,7 @@ class MasechetDownloader:
 
             file_id = items[0]['id']
             request = self.drive_service.files().get_media(fileId=file_id)
-            
+
             with io.FileIO(save_path, 'wb') as fh:
                 downloader = MediaIoBaseDownload(fh, request)
                 done = False
@@ -479,7 +505,7 @@ class MasechetDownloader:
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    
+
     app = MasechetDownloader()
     app.get_user_input()
     app.start_download()
