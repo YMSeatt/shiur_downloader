@@ -759,7 +759,7 @@ class MasechetDownloader:
                     print("this is the pages to download: ",pages_to_download)
                 else:
 
-                    for daf in range(start_daf, end_daf + 1):
+                    for daf in range(start_daf, int(end_daf) + 1):
                         pages_to_download.add(2 * (daf - 1) + 1) # Amud Aleph page
                         pages_to_download.add(2 * (daf - 1) + 2) # Amud Bet page
                     print(f"Selected: Amudim in Dapim Range {start_daf}-{end_daf}")

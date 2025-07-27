@@ -40,19 +40,19 @@ class MasechetDownloader:
 
     # --- Static Class Data and Methods ---
     masechtos_info_static = {
-         "Brachos": [36083, 125], "Shabbos": [36104, 312], "Eiruvin": [36087, 207],
-         "Psachim": [36101, 240], "Shkalim": [36105, 42], "Yuma": [36112, 173],
-         "Sukkah": [36108, 110], "Beitza": [36082, 78], "Rosh Hashana": [36102, 67],
-         "Tainis": [36109, 59], "Megilah": [36094, 61], "Moed Katan": [36097, 55],
-         "Chagigah": [36084, 51], "Yevamos": [36111, 242], "Kesubos": [36091, 222],
-         "Nedarim": [36098, 180], "Nazir": [36100, 130], "Sotah": [36107, 96],
-         "Gittin": [36088, 178], "Kedushin": [36092, 162], "Bava Kamma": [36079, 236],
-         "Bava Metzia": [36080, 235], "Bava Basra": [36078, 350], "Sanhedrin": [36103, 224],
-         "Makkos": [36093, 46], "Shvuos": [36106, 96], "Avodah Zarah": [36077, 150],
-         "Horyos": [36089, 25], "Zevachim": [36113, 238], "Menuchos": [36096, 217],
-         "Chulin": [36085, 281], "Bechoros": [36081, 119], "Arachin": [36086, 65],
-         "Temurah": [36110, 65], "Krisos": [36090, 54], "Meilah": [36095, 41],
-         "Nidah": [36099, 143]
+        "Brachos": [36083, 125], "Shabbos": [36104, 312], "Eiruvin": [36087, 207],
+        "Psachim": [36101, 240], "Shkalim": [36105, 42], "Yuma": [36112, 173],
+        "Sukkah": [36108, 110], "Beitza": [36082, 78], "Rosh Hashana": [36102, 67],
+        "Tainis": [36109, 59], "Megilah": [36094, 61], "Moed Katan": [36097, 55],
+        "Chagigah": [36084, 51], "Yevamos": [36111, 242], "Kesubos": [36091, 222],
+        "Nedarim": [36098, 180], "Nazir": [36100, 130], "Sotah": [36107, 96],
+        "Gittin": [36088, 178], "Kedushin": [36092, 162], "Bava Kamma": [36079, 236],
+        "Bava Metzia": [36080, 235], "Bava Basra": [36078, 350], "Sanhedrin": [36103, 224],
+        "Makkos": [36093, 46], "Shvuos": [36106, 96], "Avodah Zarah": [36077, 150],
+        "Horyos": [36089, 25], "Zevachim": [36113, 238], "Menuchos": [36096, 217],
+        "Chulin": [36085, 281], "Bechoros": [36081, 119], "Arachin": [36086, 65],
+        "Temurah": [36110, 65], "Krisos": [36090, 54], "Meilah": [36095, 41],
+        "Nidah": [36099, 143]
     }
 
     @staticmethod
@@ -244,6 +244,10 @@ class MasechetDownloader:
 
         if mode == "Range":
             self.range_frame.grid()
+            if self.range_end_var:
+                self.range_end_var.set("")
+            if self.range_start_var:
+                self.range_start_var.set("")
         elif mode == "Individual":
             self.individual_frame.grid()
 
@@ -374,7 +378,7 @@ class MasechetDownloader:
 
         # --- Cleanup ---
         if not self.keep_individuals_var.get() and self.merge_amudim_var.get():
-            self.clean_up(list(files_to_delete_later))
+            self.clean_up(self, list(files_to_delete_later))
 
         self.status_label.config(text=f"Download finished for {masechta_name}. Files are in: {download_dir}")
         messagebox.showinfo("Complete", f"Download and merge process for {masechta_name} is complete.")
@@ -394,7 +398,7 @@ class MasechetDownloader:
 
             for daf, paths in sorted(daf_to_files.items()):
                 daf_filename = os.path.join(download_dir, f"{self.masechet_var.get()}_Daf{daf}.pdf")
-                self.merge_pdfs(sorted(paths), daf_filename)
+                self.merge_pdfs(self, sorted(paths), daf_filename)
                 files_for_final_merge.append(daf_filename)
                 if not self.keep_individuals_var.get():
                     files_to_delete_later.update(paths)
@@ -412,7 +416,7 @@ class MasechetDownloader:
                 suffix = "Individual_Selection"
 
             merged_filename = os.path.join(DOWNLOADS_DIR, f"{self.masechet_var.get()}_{suffix}_Full.pdf")
-            self.merge_pdfs(sorted(files_for_final_merge), merged_filename)
+            self.merge_pdfs(self, sorted(files_for_final_merge), merged_filename)
 
 
     def download_from_drive(self, filename, save_path):
@@ -424,6 +428,7 @@ class MasechetDownloader:
 
             if not items:
                 print(f"[WARN] File not found in Drive: {filename}")
+                self.status_label.configure(text = f"[WARN] File not found in Drive: {filename}")
                 return False
 
             file_id = items[0]['id']
@@ -437,13 +442,15 @@ class MasechetDownloader:
             return True
         except HttpError as error:
             print(f"[ERROR] An HTTP error occurred: {error}")
+            self.status_label.configure(text = f"[ERROR] An HTTP error occurred: {error}")
             return False
         except Exception as e:
             print(f"[ERROR] An unexpected error occurred: {e}")
+            self.status_label.configure(text = f"[ERROR] An HTTP error occurred: {error}")
             return False
 
     @staticmethod
-    def merge_pdfs(pdf_files, output_filename):
+    def merge_pdfs(self, pdf_files, output_filename):
         """Merges a list of PDF files into a single output file."""
         if not pdf_files: return
         merger = PdfMerger()
@@ -453,15 +460,17 @@ class MasechetDownloader:
                     merger.append(pdf_path)
                 except Exception as e:
                     print(f"[ERROR] Could not append {os.path.basename(pdf_path)}: {e}")
+                    self.status_label.configure(text = f"[ERROR] Could not append {os.path.basename(pdf_path)}: {e}")
         try:
             merger.write(output_filename)
         except Exception as e:
             print(f"[ERROR] Could not write merged PDF {os.path.basename(output_filename)}: {e}")
+            self.status_label.configure(text = f"[ERROR] Could not write merged PDF {os.path.basename(output_filename)}: {e}")
         finally:
             merger.close()
 
     @staticmethod
-    def clean_up(files_to_delete):
+    def clean_up(self, files_to_delete):
         """Deletes specified temporary files."""
         for file in files_to_delete:
             try:
@@ -469,6 +478,7 @@ class MasechetDownloader:
                     os.remove(file)
             except OSError as e:
                 print(f"[ERROR] Could not delete file {os.path.basename(file)}: {e}")
+                self.status_label.configure(text = f"[ERROR] Could not delete file {os.path.basename(file)}: {e}")
 
     def open_output_folder(self):
         """Opens the main downloads directory."""
