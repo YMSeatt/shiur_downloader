@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talmud Page Downloader (Google Drive)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF-Lib for PDF manipulation -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <!-- JSZip for creating ZIP archives -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Inter font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: #ffffff;
+            border-radius: 1rem; /* Rounded corners */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .form-section {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            background-color: #f9fafb;
+        }
+        /* Custom scrollbar for log */
+        #logContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #logContainer::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        #logContainer::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        #logContainer::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .spinner {
+            border-top-color: transparent;
+            border-right-color: transparent;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+
+    <div class="container">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Talmud Page Downloader (Google Drive)</h1>
+        <p class="text-center text-sm text-red-600 mb-6">
+            <strong>WARNING:</strong> This application directly embeds your Google Service Account private key in the HTML/JavaScript.
+            Anyone with access to this file can view your key. Use only for offline, private distribution where you accept this risk.
+            Ensure your Service Account has ONLY 'Viewer' permissions to the specific Google Drive folder.
+        </p>
+
+        <!-- Masechet Selection -->
+        <div class="form-section">
+            <label for="masechetSelect" class="block text-lg font-medium text-gray-700 mb-2">1. Select Masechet:</label>
+            <select id="masechetSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm">
+                <!-- Options will be populated by JavaScript -->
+            </select>
+        </div>
+
+        <!-- Select By (Dapim/Amudim) -->
+        <div class="form-section">
+            <label class="block text-lg font-medium text-gray-700 mb-2">2. Select by:</label>
+            <div class="mt-2 space-y-2">
+                <div class="flex items-center">
+                    <input id="selectTypeDapim" name="selectType" type="radio" value="Dapim" checked class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-full">
+                    <label for="selectTypeDapim" class="ml-3 block text-sm font-medium text-gray-700">Dapim</label>
+                </div>
+                <div class="flex items-center">
+                    <input id="selectTypeAmudim" name="selectType" type="radio" value="Amudim" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-full">
+                    <label for="selectTypeAmudim" class="ml-3 block text-sm font-medium text-gray-700">Amudim</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Selection Mode (All/Range/Individual) -->
+        <div class="form-section">
+            <label class="block text-lg font-medium text-gray-700 mb-2">3. Selection Mode:</label>
+            <div class="mt-2 space-y-2">
+                <div class="flex items-center">
+                    <input id="selectionModeAll" name="selectionMode" type="radio" value="All" checked class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-full">
+                    <label for="selectionModeAll" class="ml-3 block text-sm font-medium text-gray-700">All</label>
+                </div>
+                <div class="flex items-center">
+                    <input id="selectionModeRange" name="selectionMode" type="radio" value="Range" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-full">
+                    <label for="selectionModeRange" class="ml-3 block text-sm font-medium text-gray-700">Range</label>
+                </div>
+                <div class="flex items-center">
+                    <input id="selectionModeIndividual" name="selectionMode" type="radio" value="Individual" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-full">
+                    <label for="selectionModeIndividual" class="ml-3 block text-sm font-medium text-gray-700">Individual</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Range/Individual Specifics (Conditional Display) -->
+        <div id="rangeInputs" class="form-section hidden">
+            <label class="block text-lg font-medium text-gray-700 mb-2">4. Enter Range:</label>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="rangeStart" class="block text-sm font-medium text-gray-700">Start <span id="rangeStartLabel">Daf</span>:</label>
+                    <input type="text" id="rangeStart" class="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2">
+                </div>
+                <div>
+                    <label for="rangeEnd" class="block text-sm font-medium text-gray-700">End <span id="rangeEndLabel">Daf</span>:</label>
+                    <input type="text" id="rangeEnd" class="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2">
+                </div>
+            </div>
+        </div>
+
+        <div id="individualInputs" class="form-section hidden">
+            <label for="individualSelections" class="block text-lg font-medium text-gray-700 mb-2">4. Enter Individual <span id="individualLabel">Dafim</span> (comma-separated):</label>
+            <input type="text" id="individualSelections" class="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md p-2" placeholder="e.g., 2, 5, 10 or 2a, 2b, 3a">
+        </div>
+
+        <!-- Merge Options -->
+        <div class="form-section">
+            <label class="block text-lg font-medium text-gray-700 mb-2">5. Output Options:</label>
+            <div class="mt-2 space-y-2">
+                <div class="flex items-center">
+                    <input id="mergeAllSelection" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-md">
+                    <span class="ml-3 text-sm font-medium text-gray-700">Merge entire selection into one PDF</span>
+                </div>
+                <div class="flex items-center" id="mergeAmudimOption">
+                    <input id="mergeAmudimIntoDapim" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-md">
+                    <span class="ml-3 text-sm font-medium text-gray-700">Merge amudim into dapim PDFs</span>
+                </div>
+                <div class="flex items-center" id="keepIndividualAmudimOption">
+                    <input id="keepIndividualAmudim" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded-md" disabled>
+                    <span class="ml-3 text-sm font-medium text-gray-700">Keep individual amud PDFs (if not merging into dapim)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Button -->
+        <div class="mt-6 text-center">
+            <button id="downloadButton" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out transform hover:scale-105">
+                <svg class="-ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+                Start Download
+            </button>
+        </div>
+
+        <!-- Progress Bar -->
+        <div id="progressContainer" class="mt-6 hidden">
+            <div class="flex justify-between mb-1">
+                <span id="progressLabel" class="text-base font-medium text-gray-700">Downloading...</span>
+                <span id="progressPercentage" class="text-sm font-medium text-gray-700">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Log Area -->
+        <div class="mt-6 flex flex-col">
+            <h3 class="text-lg font-medium text-gray-700 mb-2">Log</h3>
+            <div id="logContainer" class="flex-grow bg-gray-900 text-white font-mono text-xs p-4 rounded-lg overflow-y-auto h-48 min-h-[12rem]">
+                <p class="text-gray-400">Waiting for download to start...</p>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="resultsContainer" class="mt-8 hidden">
+            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Downloads</h2>
+            <div id="resultsDiv" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+        </div>
+    </div>
+
+    <!-- Google API Client Library -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+
+    <script type="module">
+        // Firebase imports (for Canvas environment, not directly used for Drive/PDF logic here)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Initialize Firebase (standard for Canvas apps)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        let app, db, auth;
+        let userId = 'anonymous'; // Default to anonymous
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            // Sign in anonymously or with custom token
+            async function authenticateFirebase() {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                        console.log("Signed in with custom token.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Signed in anonymously.");
+                    }
+                    userId = auth.currentUser?.uid || crypto.randomUUID();
+                    console.log("Firebase User ID:", userId);
+                } catch (error) {
+                    console.error("Firebase authentication error:", error);
+                    // Fallback to a random UUID if auth fails
+                    userId = crypto.randomUUID();
+                    console.log("Using fallback User ID:", userId);
+                }
+            }
+            authenticateFirebase();
+        } else {
+            console.warn("Firebase config not found. Running without Firebase features.");
+            userId = crypto.randomUUID(); // Generate a random ID if Firebase isn't configured
+        }
+
+        // --- IMPORTANT: SERVICE ACCOUNT CREDENTIALS ---
+        // REPLACE THESE WITH YOUR ACTUAL SERVICE ACCOUNT DETAILS
+        // Get these from your 'service_account.json' file.
+        // The 'client_email' is the email address, and 'private_key' is the private_key string.
+        const SERVICE_ACCOUNT_EMAIL = 'YOUR_SERVICE_ACCOUNT_EMAIL_HERE'; // e.g., 'your-sa-name@your-project.iam.gserviceaccount.com'
+        const SERVICE_ACCOUNT_PRIVATE_KEY = 'YOUR_SERVICE_ACCOUNT_PRIVATE_KEY_HERE'; // e.g., '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n'
+
+        // --- IMPORTANT: GOOGLE DRIVE FOLDER ID ---
+        // This is the ID of the Google Drive folder containing your PDF files.
+        // You can find this in the URL when you open the folder in Google Drive:
+        // https://drive.google.com/drive/folders/YOUR_FOLDER_ID_HERE
+        const DRIVE_FOLDER_ID = 'YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE'; // e.g., '1L94Vy-FQblxPG7XoqIjPWe-ebhRYIs3x'
+
+        // Google API client scopes
+        const GOOGLE_API_SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+
+        // --- Masechet Data (ported from DownloaderShasTextDrive.py) ---
+        const MASECHTOT_INFO = {
+            "Brachos": [36083, 125], "Shabbos": [36104, 312], "Eiruvin": [36087, 207],
+            "Psachim": [36101, 240], "Shkalim": [36105, 42], "Yuma": [36112, 173],
+            "Sukkah": [36108, 110], "Beitza": [36082, 78], "Rosh Hashana": [36102, 67],
+            "Tainis": [36109, 59], "Megilah": [36094, 61], "Moed Katan": [36097, 55],
+            "Chagigah": [36084, 51], "Yevamos": [36111, 242], "Kesubos": [36091, 222],
+            "Nedarim": [36098, 180], "Nazir": [36100, 130], "Sotah": [36107, 96],
+            "Gittin": [36088, 178], "Kedushin": [36092, 162], "Bava Kamma": [36079, 236],
+            "Bava Metzia": [36080, 235], "Bava Basra": [36078, 350], "Sanhedrin": [36103, 224],
+            "Makkos": [36093, 46], "Shvuos": [36106, 96], "Avodah Zarah": [36077, 150],
+            "Horyos": [36089, 25], "Zevachim": [36113, 238], "Menuchos": [36096, 217],
+            "Chulin": [36085, 281], "Bechoros": [36081, 119], "Arachin": [36086, 65],
+            "Temurah": [36110, 65], "Krisos": [36090, 54], "Meilah": [36095, 41],
+            "Nidah": [36099, 143]
+        };
+
+        // --- DOM Elements ---
+        const masechetSelect = document.getElementById('masechetSelect');
+        const selectTypeDapim = document.getElementById('selectTypeDapim');
+        const selectTypeAmudim = document.getElementById('selectTypeAmudim');
+        const selectionModeAll = document.getElementById('selectionModeAll');
+        const selectionModeRange = document.getElementById('selectionModeRange');
+        const selectionModeIndividual = document.getElementById('selectionModeIndividual');
+        const rangeInputs = document.getElementById('rangeInputs');
+        const individualInputs = document.getElementById('individualInputs');
+        const rangeStart = document.getElementById('rangeStart');
+        const rangeEnd = document.getElementById('rangeEnd');
+        const individualSelections = document.getElementById('individualSelections');
+        const rangeStartLabel = document.getElementById('rangeStartLabel');
+        const rangeEndLabel = document.getElementById('rangeEndLabel');
+        const individualLabel = document.getElementById('individualLabel');
+        const mergeAllSelection = document.getElementById('mergeAllSelection');
+        const mergeAmudimIntoDapim = document.getElementById('mergeAmudimIntoDapim');
+        const keepIndividualAmudim = document.getElementById('keepIndividualAmudim');
+        const mergeAmudimOption = document.getElementById('mergeAmudimOption');
+        const keepIndividualAmudimOption = document.getElementById('keepIndividualAmudimOption');
+        const downloadButton = document.getElementById('downloadButton');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressLabel = document.getElementById('progressLabel');
+        const progressPercentage = document.getElementById('progressPercentage');
+        const logContainer = document.getElementById('logContainer');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsDiv = document.getElementById('resultsDiv');
+
+        let googleApiReady = false; // Flag to ensure gapi is loaded
+
+        // --- Google API Client Library Callback ---
+        // This function is called once the gapi.js script is loaded.
+        window.gapiLoaded = () => {
+            log('Google API client library loaded.');
+            gapi.load('client', initializeGapiClient);
+        };
+
+        // Initializes the Google API client library
+        async function initializeGapiClient() {
+            try {
+                await gapi.client.init({
+                    // No API key needed for service account JWT flow
+                    // No client ID needed for service account JWT flow
+                });
+                await gapi.client.load('drive', 'v3');
+                googleApiReady = true;
+                log('Google Drive API client initialized. Ready to authenticate.');
+                // We don't authenticate here, authentication happens just before download
+            } catch (error) {
+                log(`Error initializing Google API client: ${error.message || error}`, 'error');
+                resetButton();
+            }
+        }
+
+        // --- JWT Assertion and Access Token Retrieval ---
+        async function getAccessTokenFromServiceAccount() {
+            if (!SERVICE_ACCOUNT_EMAIL || SERVICE_ACCOUNT_EMAIL === 'YOUR_SERVICE_ACCOUNT_EMAIL_HERE' ||
+                !SERVICE_ACCOUNT_PRIVATE_KEY || SERVICE_ACCOUNT_PRIVATE_KEY === 'YOUR_SERVICE_ACCOUNT_PRIVATE_KEY_HERE') {
+                throw new Error("Service account credentials are not set. Please update the HTML file.");
+            }
+
+            const header = {
+                alg: 'RS256',
+                typ: 'JWT'
+            };
+
+            const now = Math.floor(Date.now() / 1000); // Current time in seconds
+            const claims = {
+                iss: SERVICE_ACCOUNT_EMAIL, // Issuer
+                scope: GOOGLE_API_SCOPES,   // Scope(s)
+                aud: 'https://oauth2.googleapis.com/token', // Audience
+                exp: now + 3600,            // Expiration time (1 hour from now)
+                iat: now                    // Issued at time
+            };
+
+            const encodedHeader = btoa(JSON.stringify(header))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+            const encodedClaims = btoa(JSON.stringify(claims))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+
+            const unsignedJwt = `${encodedHeader}.${encodedClaims}`;
+
+            try {
+                // Import the private key
+                const privateKeyPem = SERVICE_ACCOUNT_PRIVATE_KEY;
+                const privateKeyDer = atob(privateKeyPem.split('\n').slice(1, -2).join('')); // Remove PEM headers/footers and base64 decode
+                const privateKeyBuffer = new Uint8Array(privateKeyDer.length);
+                for (let i = 0; i < privateKeyDer.length; i++) {
+                    privateKeyBuffer[i] = privateKeyDer.charCodeAt(i);
+                }
+
+                const cryptoKey = await crypto.subtle.importKey(
+                    'pkcs8',
+                    privateKeyBuffer,
+                    {
+                        name: 'RSASSA-PKCS1-v1_5',
+                        hash: { name: 'SHA-256' }
+                    },
+                    false, // Not extractable
+                    ['sign']
+                );
+
+                // Sign the JWT
+                const signature = await crypto.subtle.sign(
+                    { name: 'RSASSA-PKCS1-v1_5' },
+                    cryptoKey,
+                    new TextEncoder().encode(unsignedJwt)
+                );
+
+                const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=/g, '');
+
+                const signedJwt = `${unsignedJwt}.${encodedSignature}`;
+
+                // Exchange JWT for access token
+                const response = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                        assertion: signedJwt
+                    }).toString()
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`Failed to get access token: ${errorData.error_description || response.statusText}`);
+                }
+
+                const data = await response.json();
+                return data.access_token;
+
+            } catch (error) {
+                log(`Error during service account authentication: ${error.message || error}`, 'error');
+                throw error; // Re-throw to be caught by the download process
+            }
+        }
+
+
+        // --- Helper Functions ---
+        function log(message, type = 'info') {
+            const colorMap = {
+                info: 'text-gray-300',
+                success: 'text-green-400',
+                error: 'text-red-400',
+                warn: 'text-yellow-400'
+            };
+            const p = document.createElement('p');
+            p.innerHTML = `&gt; ${message}`;
+            p.className = colorMap[type];
+            logContainer.appendChild(p);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to bottom
+        }
+
+        function clearLog() {
+            logContainer.innerHTML = '<p class="text-gray-400">Waiting for download to start...</p>';
+        }
+
+        function updateProgress(value, label = 'Downloading...') {
+            progressContainer.classList.remove('hidden');
+            const percentage = Math.round(value * 100);
+            progressBar.style.width = `${percentage}%`;
+            progressPercentage.textContent = `${percentage}%`;
+            progressLabel.textContent = label;
+        }
+
+        function createDownloadLink(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const linkWrapper = document.createElement('div');
+            linkWrapper.className = 'bg-gray-50 border rounded-lg p-3 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow';
+            
+            const icon = `<svg class="w-10 h-10 text-indigo-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>`;
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.innerHTML = `${icon}<span class="text-sm font-medium text-gray-800 break-all">${filename}</span>`;
+            
+            linkWrapper.appendChild(link);
+            resultsDiv.appendChild(linkWrapper);
+        }
+
+        function resetButton(isSuccess = false) {
+            downloadButton.disabled = false;
+            if (isSuccess) {
+                 downloadButton.innerHTML = `<svg class="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Finished! Run Again?</span>`;
+            } else {
+                downloadButton.innerHTML = `<svg class="-ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>Start Download`;
+            }
+        }
+
+        function dafAmudCalculator(pageNumber) {
+            if (pageNumber < 1) {
+                return { daf: null, amud: null };
+            }
+            const daf = 2 + Math.floor((pageNumber - 1) / 2);
+            const amud = (pageNumber % 2 !== 0) ? "a" : "b";
+            return { daf, amud };
+        }
+
+        // --- UI Logic ---
+
+        // Populate Masechet dropdown
+        function populateMasechetDropdown() {
+            Object.keys(MASECHTOT_INFO).forEach(masechet => {
+                const option = document.createElement('option');
+                option.value = masechet;
+                option.textContent = masechet;
+                masechetSelect.appendChild(option);
+            });
+        }
+
+        // Update visibility of range/individual inputs
+        function updateInputVisibility() {
+            const mode = document.querySelector('input[name="selectionMode"]:checked').value;
+            const type = document.querySelector('input[name="selectType"]:checked').value;
+
+            rangeInputs.classList.add('hidden');
+            individualInputs.classList.add('hidden');
+
+            if (mode === 'Range') {
+                rangeInputs.classList.remove('hidden');
+                rangeStartLabel.textContent = type;
+                rangeEndLabel.textContent = type;
+            } else if (mode === 'Individual') {
+                individualInputs.classList.remove('hidden');
+                individualLabel.textContent = type === 'Dapim' ? 'Dafim' : 'Amudim';
+            }
+
+            // Merge Amudim options visibility
+            if (type === 'Amudim') {
+                mergeAmudimOption.classList.remove('hidden');
+                // If "Merge amudim into dapim" is checked, hide "Keep individual amudim"
+                if (mergeAmudimIntoDapim.checked) {
+                    keepIndividualAmudimOption.classList.add('hidden');
+                } else {
+                    keepIndividualAmudimOption.classList.remove('hidden');
+                }
+            } else {
+                mergeAmudimOption.classList.add('hidden');
+                keepIndividualAmudimOption.classList.add('hidden');
+                // Uncheck if hidden
+                mergeAmudimIntoDapim.checked = false;
+                keepIndividualAmudim.checked = false;
+            }
+
+            // Update placeholders based on selected Masechet and type
+            const selectedMasechet = masechetSelect.value;
+            const [, totalPages] = MASECHTOT_INFO[selectedMasechet];
+            const maxDaf = Math.floor(totalPages / 2);
+
+            if (type === 'Dapim') {
+                rangeStart.placeholder = `e.g., 2 (min 2)`;
+                rangeEnd.placeholder = `e.g., ${maxDaf} (max ${maxDaf})`;
+                individualSelections.placeholder = `e.g., 2, 5, ${maxDaf}`;
+            } else { // Amudim
+                rangeStart.placeholder = `e.g., 2a`;
+                rangeEnd.placeholder = `e.g., ${maxDaf}b`;
+                individualSelections.placeholder = `e.g., 2a, 5b, ${maxDaf}a`;
+            }
+        }
+
+        // Event Listeners for UI changes
+        document.querySelectorAll('input[name="selectType"]').forEach(radio => {
+            radio.addEventListener('change', updateInputVisibility);
+        });
+        document.querySelectorAll('input[name="selectionMode"]').forEach(radio => {
+            radio.addEventListener('change', updateInputVisibility);
+        });
+        masechetSelect.addEventListener('change', updateInputVisibility); // Update placeholders on masechet change
+        mergeAmudimIntoDapim.addEventListener('change', updateInputVisibility);
+
+
+        // --- Validation Logic ---
+        function validateInputs() {
+            clearLog(); // Clear previous messages
+            const masechet = masechetSelect.value;
+            const selectType = document.querySelector('input[name="selectType"]:checked').value;
+            const selectionMode = document.querySelector('input[name="selectionMode"]:checked').value;
+            const [, totalPages] = MASECHTOT_INFO[masechet];
+            const maxDaf = Math.floor(totalPages / 2);
+
+            let isValid = true;
+            let errorMessage = '';
+
+            if (!googleApiReady) {
+                errorMessage = "Google API client not ready. Please wait or check console for errors.";
+                isValid = false;
+            } else if (!SERVICE_ACCOUNT_EMAIL || SERVICE_ACCOUNT_EMAIL === 'YOUR_SERVICE_ACCOUNT_EMAIL_HERE' ||
+                       !SERVICE_ACCOUNT_PRIVATE_KEY || SERVICE_ACCOUNT_PRIVATE_KEY === 'YOUR_SERVICE_ACCOUNT_PRIVATE_KEY_HERE') {
+                errorMessage = "Service account credentials are not set. Please update the HTML file with your key.";
+                isValid = false;
+            } else if (!DRIVE_FOLDER_ID || DRIVE_FOLDER_ID === 'YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE') {
+                errorMessage = "Google Drive Folder ID is not set. Please update the HTML file.";
+                isValid = false;
+            }
+            
+            if (!isValid) {
+                log(errorMessage, 'error');
+                return isValid;
+            }
+
+
+            if (selectionMode === 'Range') {
+                const startVal = rangeStart.value.trim();
+                const endVal = rangeEnd.value.trim();
+
+                if (!startVal || !endVal) {
+                    errorMessage = 'Please enter both start and end values for the range.';
+                    isValid = false;
+                } else if (selectType === 'Dapim') {
+                    const startDaf = parseInt(startVal);
+                    const endDaf = parseInt(endVal);
+                    if (isNaN(startDaf) || isNaN(endDaf) || startDaf < 2 || endDaf > maxDaf || startDaf > endDaf) {
+                        errorMessage = `Invalid Daf range. Please enter numbers between 2 and ${maxDaf}, and start must be less than or equal to end.`;
+                        isValid = false;
+                    }
+                } else { // Amudim
+                    const amudRegex = /^\d+[ab]$/i;
+                    if (!amudRegex.test(startVal) || !amudRegex.test(endVal)) {
+                        errorMessage = 'Invalid Amud format. Use e.g., "2a" or "3b".';
+                        isValid = false;
+                    } else {
+                        // Basic check to ensure start is not after end
+                        const startNum = parseInt(startVal.slice(0, -1));
+                        const endNum = parseInt(endVal.slice(0, -1));
+                        const startChar = startVal.slice(-1).toLowerCase();
+                        const endChar = endVal.slice(-1).toLowerCase();
+
+                        if (startNum < 2 || endNum > maxDaf) {
+                             errorMessage = `Daf numbers for Amudim must be between 2 and ${maxDaf}.`;
+                             isValid = false;
+                        } else if (startNum > endNum || (startNum === endNum && startChar === 'b' && endChar === 'a')) {
+                            errorMessage = 'Invalid Amud range: start must be before or equal to end.';
+                            isValid = false;
+                        }
+                    }
+                }
+            } else if (selectionMode === 'Individual') {
+                const individualVals = individualSelections.value.trim();
+                if (!individualVals) {
+                    errorMessage = 'Please enter individual selections.';
+                    isValid = false;
+                } else {
+                    const items = individualVals.split(',').map(s => s.trim()).filter(Boolean);
+                    if (items.length === 0) {
+                        errorMessage = 'Please enter at least one selection.';
+                        isValid = false;
+                    } else if (selectType === 'Dapim') {
+                        const invalidDaf = items.some(item => {
+                            const daf = parseInt(item);
+                            return isNaN(daf) || daf < 2 || daf > maxDaf;
+                        });
+                        if (invalidDaf) {
+                            errorMessage = `Invalid individual Dafim. Please enter numbers between 2 and ${maxDaf}.`;
+                            isValid = false;
+                        }
+                    } else { // Amudim
+                        const amudRegex = /^\d+[ab]$/i;
+                        const invalidAmud = items.some(item => {
+                            if (!amudRegex.test(item)) return true;
+                            const daf = parseInt(item.slice(0, -1));
+                            return daf < 2 || daf > maxDaf;
+                        });
+                        if (invalidAmud) {
+                            errorMessage = 'Invalid individual Amudim format or range. Use e.g., "2a" or "3b", with daf numbers between 2 and ' + maxDaf + '.';
+                            isValid = false;
+                        }
+                    }
+                }
+            }
+
+            if (!isValid) {
+                log(errorMessage, 'error');
+            }
+            return isValid;
+        }
+
+        // --- Core Download and Merge Logic ---
+        async function startDownloadProcess() {
+            if (!validateInputs()) {
+                return; // Stop if validation fails
+            }
+
+            // 1. Reset UI
+            downloadButton.disabled = true;
+            downloadButton.innerHTML = `<div class="spinner w-5 h-5 border-4 border-white rounded-full"></div><span class="ml-2">Authenticating...</span>`;
+            clearLog();
+            resultsDiv.innerHTML = '';
+            resultsContainer.classList.add('hidden');
+            updateProgress(0, 'Starting...');
+
+            let accessToken;
+            try {
+                log('Attempting to authenticate with Google Drive service account...');
+                accessToken = await getAccessTokenFromServiceAccount();
+                log('Successfully authenticated with Google Drive.', 'success');
+                // Set the access token for gapi.client
+                gapi.client.setToken({ access_token: accessToken });
+            } catch (error) {
+                log(`Authentication failed: ${error.message}`, 'error');
+                resetButton();
+                return;
+            }
+
+            // 2. Gather Inputs
+            const masechetName = masechetSelect.value;
+            const selectType = document.querySelector('input[name="selectType"]:checked').value;
+            const selectionMode = document.querySelector('input[name="selectionMode"]:checked').value;
+            const [masechtaId, totalPages] = MASECHTOT_INFO[masechetName]; // masechtaId is not used for GDrive
+            const maxDaf = Math.floor(totalPages / 2);
+
+            log(`Selected Masechet: ${masechetName} (Pages: ${totalPages})`);
+            log(`Selection by: ${selectType}, Mode: ${selectionMode}`);
+
+            // 3. Calculate Pages to Download (Logic ported from Python script)
+            const pagesToDownload = new Set();
+            try {
+                if (selectionMode === "All") {
+                    for (let i = 1; i <= totalPages; i++) pagesToDownload.add(i);
+                } else if (selectionMode === "Range") {
+                    const startStr = rangeStart.value.trim();
+                    const endStr = rangeEnd.value.trim();
+
+                    if (selectType === "Dapim") {
+                        const startDaf = parseInt(startStr);
+                        const endDaf = parseInt(endStr);
+                        for (let daf = startDaf; daf <= endDaf; daf++) {
+                            pagesToDownload.add(2 * (daf - 2) + 1);
+                            pagesToDownload.add(2 * (daf - 2) + 2);
+                        }
+                    } else { // Amudim
+                        const startDaf = parseInt(startStr.slice(0, -1));
+                        const startAmud = startStr.slice(-1).toLowerCase();
+                        const endDaf = parseInt(endStr.slice(0, -1));
+                        const endAmud = endStr.slice(-1).toLowerCase();
+
+                        for (let daf = startDaf; daf <= endDaf; daf++) {
+                            const isFirstDaf = (daf === startDaf);
+                            const isLastDaf = (daf === endDaf);
+
+                            if (!(isFirstDaf && startAmud === 'b')) {
+                                pagesToDownload.add(2 * (daf - 2) + 1); // 'a' side
+                            }
+                            if (!(isLastDaf && endAmud === 'a')) {
+                                pagesToDownload.add(2 * (daf - 2) + 2); // 'b' side
+                            }
+                        }
+                    }
+                } else if (selectionMode === "Individual") {
+                    const selections = individualSelections.value.split(',').map(s => s.trim()).filter(Boolean);
+                    
+                    if (selectType === "Dapim") {
+                        selections.forEach(dafStr => {
+                            const daf = parseInt(dafStr);
+                            pagesToDownload.add(2 * (daf - 2) + 1);
+                            pagesToDownload.add(2 * (daf - 2) + 2);
+                        });
+                    } else { // Amudim
+                        selections.forEach(amudStr => {
+                            const daf = parseInt(amudStr.slice(0, -1));
+                            const amudChar = amudStr.slice(-1).toLowerCase();
+                            const page = 2 * (daf - 2) + (amudChar === 'a' ? 1 : 2);
+                            pagesToDownload.add(page);
+                        });
+                    }
+                }
+            } catch (e) {
+                log(`Error calculating pages: ${e.message}`, 'error');
+                resetButton();
+                return;
+            }
+
+            const filesToFetch = Array.from(pagesToDownload).filter(p => p >= 1 && p <= totalPages).sort((a,b) => a - b);
+            if (filesToFetch.length === 0) {
+                log("No valid pages selected or found for this Masechet.", 'warn');
+                resetButton();
+                return;
+            }
+
+            log(`Will attempt to download ${filesToFetch.length} files from Google Drive.`, 'success');
+
+            // 4. Download files from Google Drive
+            const downloadedFiles = {}; // { pageNum: { daf, amud, filename, arrayBuffer, fileId } }
+            let downloadedCount = 0;
+
+            for (const pageNum of filesToFetch) {
+                const { daf, amud } = dafAmudCalculator(pageNum);
+                const expectedFilename = `${masechetName}_Daf${daf}_Amud${amud}.pdf`;
+                
+                try {
+                    log(`Searching for '${expectedFilename}' in Google Drive...`);
+                    // Search for the file by name within the specified folder
+                    const searchResponse = await gapi.client.drive.files.list({
+                        q: `'${DRIVE_FOLDER_ID}' in parents and name = '${expectedFilename}' and trashed = false`,
+                        fields: 'files(id, name)',
+                        corpora: 'allDrives', // Important for shared drives
+                        includeItemsFromAllDrives: true,
+                        supportsAllDrives: true
+                    });
+
+                    const files = searchResponse.result.files;
+                    if (!files || files.length === 0) {
+                        log(`File '${expectedFilename}' not found in specified Google Drive folder. Skipping.`, 'warn');
+                        continue; // Skip to next file
+                    }
+
+                    const fileId = files[0].id;
+                    log(`Found '${expectedFilename}' (ID: ${fileId}). Downloading...`);
+
+                    // Download the file content
+                    const downloadResponse = await gapi.client.drive.files.get({
+                        fileId: fileId,
+                        alt: 'media' // This tells the API to return the file content
+                    }, {
+                        // Set responseType to 'arraybuffer' to get binary data
+                        responseType: 'arraybuffer'
+                    });
+
+                    const arrayBuffer = downloadResponse.body;
+                    
+                    downloadedFiles[pageNum] = { daf, amud, filename: expectedFilename, arrayBuffer, fileId };
+                    log(`Successfully downloaded ${expectedFilename}`, 'success');
+
+                } catch (e) {
+                    log(`Failed to download ${expectedFilename}: ${e.message || e}`, 'error');
+                    // Continue to next file even if one fails, unless it's a critical auth error
+                    if (e.status === 401 || e.status === 403) { // Unauthorized or Forbidden
+                        log('Authentication or permission error. Stopping download.', 'error');
+                        resetButton();
+                        return;
+                    }
+                }
+                downloadedCount++;
+                updateProgress(downloadedCount / filesToFetch.length, `Downloading... (${downloadedCount}/${filesToFetch.length})`);
+            }
+
+            const actualDownloadedPages = Object.keys(downloadedFiles).length;
+            if (actualDownloadedPages === 0) {
+                log("No files were successfully downloaded from Google Drive.", 'error');
+                resetButton();
+                return;
+            }
+            log(`Successfully downloaded ${actualDownloadedPages} files.`, 'success');
+
+            // 5. Process and Generate Output Files
+            updateProgress(1, 'Processing files...');
+            resultsContainer.classList.remove('hidden');
+            const { PDFDocument } = PDFLib;
+
+            const mergeAll = mergeAllSelection.checked;
+            const mergeIntoDapim = mergeAmudimIntoDapim.checked && selectType === 'Amudim';
+            const keepAmudim = keepIndividualAmudim.checked;
+
+            let filesForFinalMerge = []; // Array of { filename, pdfDoc }
+            let individualAmudBlobs = {}; // { filename: blob }
+
+            // Create individual amud PDFs first if needed (for keeping or for initial merge source)
+            if (!mergeIntoDapim || keepAmudim) {
+                log('Preparing individual amud PDFs...');
+                for (const pageNum in downloadedFiles) {
+                    const file = downloadedFiles[pageNum];
+                    const blob = new Blob([file.arrayBuffer], { type: 'application/pdf' });
+                    individualAmudBlobs[file.filename] = blob;
+                    // If not merging into dapim, these individual PDFs are the primary output
+                    if (!mergeIntoDapim) {
+                        const pdfDoc = await PDFDocument.load(file.arrayBuffer);
+                        filesForFinalMerge.push({ filename: file.filename, pdfDoc });
+                    }
+                }
+            }
+            
+            // Merge amudim into dapim if requested
+            if (mergeIntoDapim) {
+                log('Merging amudim into dapim...');
+                const dapimToMerge = {}; // { dafNum: [arrayBuffer1, arrayBuffer2] }
+                for (const pageNum in downloadedFiles) {
+                    const file = downloadedFiles[pageNum];
+                    if (!dapimToMerge[file.daf]) dapimToMerge[file.daf] = [];
+                    dapimToMerge[file.daf].push({ pageNum: pageNum, arrayBuffer: file.arrayBuffer });
+                }
+
+                const sortedDafNums = Object.keys(dapimToMerge).map(Number).sort((a,b) => a - b);
+
+                for (const dafNum of sortedDafNums) {
+                    const dafFilename = `${masechetName}_Daf${dafNum}.pdf`;
+                    const mergedDafPdf = await PDFDocument.create();
+                    // Sort the array buffers by page number (a/b) to ensure correct order
+                    const sortedArrayBuffers = dapimToMerge[dafNum].sort((a, b) => {
+                        const pageA = dafAmudCalculator(a.pageNum);
+                        const pageB = dafAmudCalculator(b.pageNum);
+                        if (pageA.amud === 'a' && pageB.amud === 'b') return -1;
+                        if (pageA.amud === 'b' && pageB.amud === 'a') return 1;
+                        return 0;
+                    });
+
+                    for (const { arrayBuffer: ab } of sortedArrayBuffers) {
+                         const pdfDoc = await PDFDocument.load(ab);
+                         const copiedPages = await mergedDafPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+                         copiedPages.forEach(page => mergedDafPdf.addPage(page));
+                    }
+                    filesForFinalMerge.push({ filename: dafFilename, pdfDoc: mergedDafPdf });
+                }
+            }
+
+            // Final merge if requested
+            if (mergeAll && filesForFinalMerge.length > 0) {
+                log('Merging entire selection into one PDF...');
+                const finalMergedPdf = await PDFDocument.create();
+                for (const { pdfDoc } of filesForFinalMerge) {
+                    const copiedPages = await finalMergedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+                    copiedPages.forEach(page => finalMergedPdf.addPage(page));
+                }
+                
+                let name_suffix = "Selection";
+                if(selectionMode === "All") name_suffix = "All";
+                else if (selectionMode === "Range") name_suffix = `Range_${rangeStart.value.trim().replace(/ /g, '')}-${rangeEnd.value.trim().replace(/ /g, '')}`;
+
+                const mergedFilename = `${masechetName}_${name_suffix}_Full.pdf`;
+                const mergedPdfBytes = await finalMergedPdf.save();
+                const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+                createDownloadLink(blob, mergedFilename);
+                log(`Created final merged file: ${mergedFilename}`, 'success');
+            } else {
+                // Create links for the intermediate files (dapim or amudim)
+                for (const { filename, pdfDoc } of filesForFinalMerge) {
+                    const pdfBytes = await pdfDoc.save();
+                    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                    createDownloadLink(blob, filename);
+                }
+            }
+
+            // Create links for kept individual amudim
+            if (keepAmudim && mergeIntoDapim) { // Only provide if merging into dapim but also keeping individuals
+                log('Providing links for individual amudim...');
+                // Ensure individual amudim links are created for *all* downloaded files,
+                // not just those that were part of a merge.
+                const sortedPageNums = Object.keys(downloadedFiles).map(Number).sort((a,b) => a - b);
+                for (const pageNum of sortedPageNums) {
+                    const file = downloadedFiles[pageNum];
+                    createDownloadLink(individualAmudBlobs[file.filename], file.filename);
+                }
+            }
+
+            // Option to download all as a zip
+            // Collect all current download links from the resultsDiv
+            const allBlobs = Array.from(resultsDiv.querySelectorAll('a')).map(a => ({
+                name: a.download,
+                url: a.href
+            }));
+
+            if (allBlobs.length > 1) { // Only create zip if there's more than one individual file
+                log('Creating a ZIP file for all downloads...');
+                const zip = new JSZip();
+                for (const file of allBlobs) {
+                    // Fetch the blob again from the URL. This is less efficient but ensures the blob is fresh.
+                    // For very large numbers of files, one might store blobs directly instead of URLs.
+                    const blob = await fetch(file.url).then(res => res.blob());
+                    zip.file(file.name, blob);
+                }
+                const zipBlob = await zip.generateAsync({type:"blob"});
+                const zipFilename = `${masechetName}_Download.zip`;
+                createDownloadLink(zipBlob, zipFilename);
+                log(`Created ${zipFilename}`, 'success');
+            }
+
+
+            updateProgress(1, 'Finished!');
+            resetButton(true);
+        }
+        
+        // Initial setup
+        document.addEventListener('DOMContentLoaded', () => {
+            populateMasechetDropdown();
+            updateInputVisibility(); // Set initial visibility based on default radio selections
+        });
+
+    </script>
+</body>
+</html>
