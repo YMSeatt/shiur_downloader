@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import time
 import io
 import logging
@@ -7,6 +8,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk, simpledialog, END
 import platform
 import subprocess
+import darkdetect
+import sv_ttk
 
 try:
     from PyPDF2 import PdfMerger
@@ -27,7 +30,7 @@ except ImportError:
 
 # The scope defines the level of access. Read-only is safest.
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-SERVICE_ACCOUNT_FILE = 'service_account.json'
+SERVICE_ACCOUNT_FILE = 'assets\\service_account.json'
 
 # --- IMPORTANT: PASTE YOUR FOLDER ID HERE ---
 DRIVE_FOLDER_ID = '1L94Vy-FQblxPG7XoqIjPWe-ebhRYIs3x'
@@ -35,6 +38,38 @@ DRIVE_FOLDER_ID = '1L94Vy-FQblxPG7XoqIjPWe-ebhRYIs3x'
 DOWNLOADS_DIR = "downloads"
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
+
+
+def get_app_data_path(filename):
+    try:
+        # Determine base path based on whether the app is frozen (packaged) or running from script
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # Running as a PyInstaller bundle
+            if os.name == 'win32': # Windows
+                base_path = os.path.join(os.getenv('APPDATA'), APP_NAME)
+            elif sys.platform == 'darwin': # macOS
+                base_path = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', APP_NAME)
+            else: # Linux and other Unix-like
+                xdg_config_home = os.getenv('XDG_CONFIG_HOME')
+                if xdg_config_home:
+                    base_path = os.path.join(xdg_config_home)
+                else:
+                    base_path = os.path.join(os.path.expanduser('~'))
+        else:
+            # Running as a script, use the script's directory
+            base_path = os.path.dirname(os.path.abspath(__file__))
+
+        # Create the base directory if it doesn't exist
+        if not os.path.exists(base_path):
+            os.makedirs(base_path, exist_ok=True)
+        return os.path.join(base_path, filename)
+    except Exception as e:
+        # Fallback to current working directory if standard paths fail
+        print(f"Warning: Could not determine standard app data path due to {e}. Using current working directory as fallback.")
+        fallback_path = os.path.join(os.getcwd()) # Create a subfolder in CWD
+        if not os.path.exists(fallback_path):
+            os.makedirs(fallback_path, exist_ok=True)
+        return os.path.join(fallback_path, filename)
 
 class MasechetDownloader:
 
@@ -85,16 +120,24 @@ class MasechetDownloader:
             self.root.destroy()
             return
 
+        self.theme_auto()
         self.create_widgets()
 
     def authenticate_google_drive(self):
         """Authenticates with the Google Drive API using a Service Account."""
-        if not os.path.exists(SERVICE_ACCOUNT_FILE):
+
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        service_path = os.path.join(base_dir, SERVICE_ACCOUNT_FILE)
+        
+        if not os.path.exists(service_path): #os.path.join(base_dir, SERVICE_ACCOUNT_FILE)): #os.path.abspath(SERVICE_ACCOUNT_FILE)):
             messagebox.showerror("Authentication Error", f"Service account key file not found: '{SERVICE_ACCOUNT_FILE}'\nPlease follow the setup instructions.")
             return None
         try:
             creds = service_account.Credentials.from_service_account_file(
-                SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+                service_path, scopes=SCOPES)
             service = build('drive', 'v3', credentials=creds)
             print("[INFO] Successfully authenticated with Google Drive via Service Account.")
             return service
@@ -493,12 +536,36 @@ class MasechetDownloader:
         except Exception as e:
             messagebox.showerror("Error", f"Could not open folder: {e}")
 
+    def theme_auto(self, theme=None):
+        sv_ttk.set_theme(darkdetect.theme()) # type: ignore
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     root = tk.Tk()
     app = MasechetDownloader(root)
+    sv_ttk.set_theme("light")
+    
+    try:
+        t = threading.Thread(target=darkdetect.listener, args=(app.theme_auto, ))
+        t.daemon = True
+        t.start()
+        sv_ttk.set_theme(darkdetect.theme()) # type: ignore
+    except: pass
+    
+    # Close the splash screen once the main app is initialized and ready
+    try: pyi_splash.close() # type: ignore
+    except: pass
+    
     root.mainloop()
 
 if __name__ == "__main__":
+    
+    try:
+        import pyi_splash # type: ignore
+        # You can optionally update the splash screen text as things load
+        pyi_splash.update_text("Loading UI...")
+    except ImportError:
+        pyi_splash = None # Will be None when not running from a PyInstaller bundle
+    except RuntimeError: pass
+    
     main()
