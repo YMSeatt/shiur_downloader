@@ -120,6 +120,7 @@ class MasechetDownloader:
             self.root.destroy()
             return
 
+        self.masechta_folder_ids = {}
         self.theme_auto()
         self.create_widgets()
 
@@ -402,7 +403,7 @@ class MasechetDownloader:
             self.root.update_idletasks()
 
             if not os.path.exists(local_path):
-                success = self.download_from_drive(filename, local_path)
+                success = self.download_from_drive(masechta_name, filename, local_path)
                 if success:
                     downloaded_files_map[page_num] = local_path
                 else:
@@ -446,7 +447,9 @@ class MasechetDownloader:
                 if not self.keep_individuals_var.get():
                     files_to_delete_later.update(paths)
         else:
-            files_for_final_merge.extend(downloaded_files_map.values())
+            # Sort by page number (dict key) to ensure correct order
+            sorted_items = sorted(downloaded_files_map.items())
+            files_for_final_merge.extend([item[1] for item in sorted_items])
 
         if self.merge_all_var.get():
             self.status_label.config(text="Merging selection into a single PDF...")
@@ -459,19 +462,45 @@ class MasechetDownloader:
                 suffix = "Individual_Selection"
 
             merged_filename = os.path.join(DOWNLOADS_DIR, f"{self.masechet_var.get()}_{suffix}_Full.pdf")
-            self.merge_pdfs(self, sorted(files_for_final_merge), merged_filename)
+            self.merge_pdfs(self, files_for_final_merge, merged_filename)
 
 
-    def download_from_drive(self, filename, save_path):
-        """Searches for a file and downloads it from Google Drive."""
+    def download_from_drive(self, masechta_name, filename, save_path):
+        """Searches for a file on Google Drive and downloads it.
+        It first looks in a subfolder named after the masechta, then falls back to the main folder.
+        """
         try:
-            query = f"name = '{filename}' and '{DRIVE_FOLDER_ID}' in parents and trashed = false"
+            # Check cache for masechta folder ID
+            parent_folder_id = self.masechta_folder_ids.get(masechta_name)
+
+            if parent_folder_id is None:
+                # If not cached, search for the masechta subfolder
+                folder_query = f"name = '{masechta_name}' and '{DRIVE_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                folder_results = self.drive_service.files().list(q=folder_query, corpora='allDrives', includeItemsFromAllDrives=True, supportsAllDrives=True, fields='files(id)').execute()
+                folder_items = folder_results.get('files', [])
+
+                if folder_items:
+                    parent_folder_id = folder_items[0]['id']
+                    self.masechta_folder_ids[masechta_name] = parent_folder_id
+                else:
+                    # Cache the fact that we should use the root folder
+                    self.masechta_folder_ids[masechta_name] = DRIVE_FOLDER_ID
+                    parent_folder_id = DRIVE_FOLDER_ID
+            
+            # Search for the file in the determined folder (masechta subfolder or root)
+            query = f"name = '{filename}' and '{parent_folder_id}' in parents and trashed = false"
             results = self.drive_service.files().list(q=query, corpora='allDrives', includeItemsFromAllDrives=True, supportsAllDrives=True, fields='files(id)').execute()
             items = results.get('files', [])
 
+            # If not found in subfolder, and we were searching a subfolder, try the root folder as a fallback
+            if not items and parent_folder_id != DRIVE_FOLDER_ID:
+                query = f"name = '{filename}' and '{DRIVE_FOLDER_ID}' in parents and trashed = false"
+                results = self.drive_service.files().list(q=query, corpora='allDrives', includeItemsFromAllDrives=True, supportsAllDrives=True, fields='files(id)').execute()
+                items = results.get('files', [])
+
             if not items:
                 print(f"[WARN] File not found in Drive: {filename}")
-                self.status_label.configure(text = f"[WARN] File not found in Drive: {filename}")
+                self.status_label.configure(text=f"File not found in Drive: {filename}")
                 return False
 
             file_id = items[0]['id']
@@ -489,7 +518,7 @@ class MasechetDownloader:
             return False
         except Exception as e:
             print(f"[ERROR] An unexpected error occurred: {e}")
-            self.status_label.configure(text = f"[ERROR] An HTTP error occurred: {error}")
+            self.status_label.configure(text = f"[ERROR] An unexpected error occurred: {e}")
             return False
 
     @staticmethod
